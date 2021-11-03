@@ -2,16 +2,16 @@
 //		"Домашнее задание".
 //
 //	Назначение:
-//		Решение задач, заданных на курсе.
+//		Создание микросервиса для решения задач.
 //
 //	Описание:
-//		Программа запрашивает название задачи, которую необходимо решить. Затем она отправляет запрос,
-//		чтобы получить данные для обработки, и в зависимости от выбранной задачи выводит ответ.
+//		Сервис принимает запрос в виде названия одной из задач (запрос необходимо написать на кириллице).
+//		Затем сервис в зависимости от задачи получает данные, обрабатывает их и посылает в ответ полученный результат.
 
 package main
 
 import (
-	"bufio"
+	"encoding/hex"
 	"fmt"
 	"homework/entry"
 	"homework/lost"
@@ -19,38 +19,37 @@ import (
 	"homework/sequence"
 	"io/ioutil"
 	"net/http"
-	"os"
 )
 
 func main() {
 
-	taskName := choice()
+	http.HandleFunc("/", myHandler) //	Обработка запроса
 
-	var chanData chan []int = make(chan []int)
-
-	go requestData(taskName, chanData)
-
-	fmt.Println(calculation(taskName, chanData))
+	http.ListenAndServe(":8080", nil) // Запуск сервера
 
 }
 
-// Ввод названия задачи для решения
-func choice() string {
+// Функция преобразования URL запроса
+func hexString(s string) string {
 
-	fmt.Println("Введите название задачи ")
+	var str string
 
-	scanner := bufio.NewScanner(os.Stdin)
+	for _, i := range s {
+		n := string(i)
+		if n != "%" {
+			str = str + n
+		}
+	}
 
-	scanner.Scan()
+	decoded, _ := hex.DecodeString(str)
 
-	return scanner.Text()
-
+	return (string(decoded))
 }
 
-// Получение данных для обработки
-func requestData(name string, c chan []int) {
+// Функция получения данных
+func GetData(s string) []int {
 
-	resp, err := http.Get("http://116.203.203.76:3000/tasks/" + name) //	Получение данных
+	resp, err := http.Get("http://116.203.203.76:3000/tasks/" + s) //	Адрес сервера с данными
 
 	if err != nil {
 		fmt.Println("error get")
@@ -69,32 +68,51 @@ func requestData(name string, c chan []int) {
 		lst = append(lst, int(i))
 	}
 
-	c <- lst
-
+	return lst
 }
 
-// Выбор функции для вычисления ответа
-func calculation(name string, c chan []int) interface{} {
+// Функция выбора решения для вычисления ответа
+func calculation(name string, list []int) []byte {
 
-	data := <-c
+	var resp []byte
 
 	switch name {
 
 	case "Циклическая ротация":
-		task1 := rotation.Solution(&data)
-		return task1
+		task1 := rotation.Solution(&list)
+		for _, i := range task1 {
+			resp = append(resp, byte(i))
+		}
 	case "Чудные вхождения в массив":
-		task2 := entry.Solution(&data)
-		return task2
+		task2 := entry.Solution(&list)
+		resp = append(resp, byte(task2))
 	case "Проверка последовательности":
-		task3 := sequence.Solution(&data)
-		return task3
+		task3 := sequence.Solution(&list)
+		resp = append(resp, byte(task3))
 	case "Поиск отсутствующего элемента":
-		task4 := lost.Solution(&data)
-		return task4
+		task4 := lost.Solution(&list)
+		resp = append(resp, byte(task4))
 	default:
-		return "Нет ответа"
+		resp = []byte("Нет решения")
 
 	}
+
+	return resp
+}
+
+// Функция обработки запроса
+func myHandler(w http.ResponseWriter, r *http.Request) {
+	u := r.URL.RequestURI()[1:] //	Получение URL запроса
+
+	uStr := hexString(u) //	Преобразование URL в строку (определение задачи)
+
+	data := GetData(uStr) //	Получение данных для задачи
+
+	answer := calculation(uStr, data) // Решение задачи
+
+	fmt.Println(answer)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write(answer) //	Отправка ответа
 
 }
